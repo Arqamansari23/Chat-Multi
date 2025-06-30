@@ -1,0 +1,17 @@
+fastapi
+uvicorn
+python-multipart
+aiofiles
+langchain
+openai
+tiktoken
+faiss-cpu
+PyPDF2
+pydantic
+streamlit
+scikit-learn
+langchain-community
+langchain-core
+langchain-text-splitters
+pypdf
+rank_bm25

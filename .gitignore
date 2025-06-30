@@ -1,0 +1,49 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Temporary files
+*.log
+*.tmp
+*.swp
+
+# Environment files
+.env
+*.env
+
+# macOS / Linux / Windows system files
+.DS_Store
+Thumbs.db
+
+# IDE/editor config
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+
+
+# Python virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Dependency management
+pip-wheel-metadata/
+pip-log.txt
+
+# LangChain vector data
+vectorstores/
+temp_pdfs/
+
+# __pycache__ or compiled files in langchain
+**/__pycache__/
+**/*.pyc
+
+# Node.js (if any frontend tooling is used)
+node_modules/
+
+.dockerignore
+

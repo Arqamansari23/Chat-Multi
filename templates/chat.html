@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Chat with Books</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        .chat-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .chat-header {
+            flex-shrink: 0;
+            margin-bottom: 20px;
+        }
+
+        .chat-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center; /* Center the answer box */
+            margin-bottom: 20px;
+        }
+
+        .selected-books {
+            background: #e8f4fd;
+            border: 2px solid #0066cc;
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .selected-books h3 {
+            margin-top: 0;
+            color: #0066cc;
+        }
+
+        .book-tag {
+            display: inline-block;
+            background: #0066cc;
+            color: white;
+            padding: 5px 12px;
+            border-radius: 20px;
+            margin: 3px;
+            font-size: 0.9em;
+        }
+
+        .question-form-fixed {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: white;
+            border-top: 2px solid #dde5ff;
+            padding: 20px;
+            box-shadow: 0 -2px 10px rgba(0, 102, 255, 0.1);
+            z-index: 1000;
+        }
+
+        .question-form-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .question-form-fixed .question-input {
+            flex: 1;
+            padding: 12px;
+            border: 2px solid #dde5ff;
+            border-radius: 8px;
+            font-size: 1rem;
+            box-sizing: border-box;
+        }
+
+        .question-form-fixed .question-input:focus {
+            outline: none;
+            border-color: #0066cc;
+        }
+
+        .question-form-fixed .ask-button {
+            background: #0066cc;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+            width: 120px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .question-form-fixed .ask-button:hover {
+            background: #0052a3;
+        }
+
+        .question-form-fixed .ask-button:disabled {
+            background: #cccccc;
+            cursor: not-allowed;
+        }
+
+        .button-spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid #ffffff;
+            border-top: 2px solid transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 8px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        #answer-box {
+            background-color: #ffffff;
+            border-left: 5px solid #007bff;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 102, 255, 0.15);
+            padding: 25px;
+            margin-bottom: 120px;
+            display: flex;
+            flex-direction: column;
+            height: 500px; /* Fixed static height */
+            width: 95%; /* Make it wider */
+            max-width: 1100px; /* Maximum width */
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        #answer-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            flex-shrink: 0;
+            gap: 15px;
+            position: sticky;
+            top: 0;
+            background: white;
+            z-index: 10;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        #answer-header h3 {
+            margin: 0;
+            flex: 1;
+        }
+
+        .header-buttons {
+            display: flex;
+            gap: 10px;
+            flex-shrink: 0;
+        }
+
+        #answer-header button {
+            background-color: #007bff;
+            color: white;
+            font-size: 1rem;
+            padding: 8px 16px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            white-space: nowrap;
+            min-width: 80px;
+        }
+
+        #answer-header button:hover {
+            background-color: #0056b3;
+        }
+
+        #clear-history {
+            background-color: #dc3545;
+        }
+
+        #clear-history:hover {
+            background-color: #c82333;
+        }
+
+        #chat-history {
+            flex: 1;
+            overflow-y: auto;
+            padding-right: 10px;
+            height: 400px; /* Fixed height for consistent scrolling */
+            max-height: 400px;
+        }
+
+        #chat-history::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        #chat-history::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 4px;
+        }
+
+        #chat-history::-webkit-scrollbar-thumb {
+            background: #c1c1c1;
+            border-radius: 4px;
+        }
+
+        #chat-history::-webkit-scrollbar-thumb:hover {
+            background: #a8a8a8;
+        }
+
+        .back-to-main {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #28a745;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            z-index: 1001;
+        }
+
+        .back-to-main:hover {
+            background: #218838;
+        }
+
+        .chat-entry {
+            margin-bottom: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            background: #f8f9fa;
+            border-left: 4px solid #0066cc;
+        }
+
+        .question {
+            font-weight: bold;
+            color: #0066cc;
+            margin-bottom: 10px;
+        }
+
+        .answer {
+            line-height: 1.6;
+        }
+
+        .timestamp {
+            font-size: 0.8em;
+            color: #666;
+            margin-top: 10px;
+        }
+
+        /* Responsive design */
+        @media (max-width: 768px) {
+            .chat-container {
+                padding: 10px;
+                height: 100vh;
+            }
+
+            #answer-box {
+                height: 450px; /* Fixed height for mobile */
+                width: 98%;
+                margin-bottom: 140px;
+            }
+
+            #chat-history {
+                height: 350px;
+                max-height: 350px;
+            }
+
+            #answer-header {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 10px;
+            }
+
+            .header-buttons {
+                justify-content: space-between;
+            }
+
+            .question-form-container {
+                flex-direction: column;
+                gap: 10px;
+            }
+
+            .question-form-fixed .question-input {
+                width: 100%;
+            }
+
+            .question-form-fixed .ask-button {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <button class="back-to-main" onclick="window.close()">← Close Window</button>
+
+    <div class="chat-container">
+        <div class="chat-header">
+            <h1>💬 Chat with Your Books</h1>
+
+            <div class="selected-books">
+                <h3>📚 Selected Books:</h3>
+                <div id="selected-books-display"></div>
+            </div>
+        </div>
+
+        <div class="chat-content">
+            <div id="answer-box">
+                <div id="answer-header">
+                    <h3>🧠 Chat History:</h3>
+                    <div class="header-buttons">
+                        <button id="toggle-chat">−</button>
+                        <button id="clear-history">Clear History</button>
+                    </div>
+                </div>
+                <div id="chat-history"></div>
+            </div>
+        </div>
+
+        <div class="question-form-fixed">
+            <div class="question-form-container">
+                <input type="text" id="question-input" class="question-input" placeholder="Ask a question about your selected books..." />
+                <button id="ask-button" class="ask-button">
+                    <span id="button-text">Ask Question</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let selectedBooks = [];
+        let chatVisible = true;
+        let isLoading = false;
+
+        // Parse selected books from URL parameters
+        function parseSelectedBooks() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const booksParam = urlParams.get('books');
+
+            if (booksParam) {
+                try {
+                    selectedBooks = JSON.parse(decodeURIComponent(booksParam));
+                    displaySelectedBooks();
+                    updateWindowTitle();
+                } catch (e) {
+                    console.error('Error parsing books parameter:', e);
+                    selectedBooks = [];
+                }
+            }
+        }
+
+        function displaySelectedBooks() {
+            const container = document.getElementById('selected-books-display');
+            container.innerHTML = '';
+
+            selectedBooks.forEach(book => {
+                const tag = document.createElement('span');
+                tag.className = 'book-tag';
+                tag.textContent = book;
+                container.appendChild(tag);
+            });
+        }
+
+        function updateWindowTitle() {
+            if (selectedBooks.length > 0) {
+                document.title = `Chat: ${selectedBooks.join(', ')}`;
+            }
+        }
+
+        function showButtonLoading() {
+            const askButton = document.getElementById('ask-button');
+            const buttonText = document.getElementById('button-text');
+
+            askButton.disabled = true;
+            buttonText.innerHTML = '<div class="button-spinner"></div>Loading...';
+            isLoading = true;
+        }
+
+        function hideButtonLoading() {
+            const askButton = document.getElementById('ask-button');
+            const buttonText = document.getElementById('button-text');
+
+            askButton.disabled = false;
+            buttonText.textContent = 'Ask Question';
+            isLoading = false;
+        }
+
+        async function askQuestion() {
+            if (isLoading) return;
+
+            const questionInput = document.getElementById('question-input');
+            const question = questionInput.value.trim();
+
+            if (!question) {
+                alert('Please enter a question.');
+                return;
+            }
+
+            if (selectedBooks.length === 0) {
+                alert('No books selected.');
+                return;
+            }
+
+            showButtonLoading();
+
+            try {
+                const response = await fetch('/multi_query/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        books: selectedBooks,
+                        query: question
+                    })
+                });
+
+                const data = await response.json();
+
+                // Add to chat history
+                addToChatHistory(question, data.answer || 'No response.');
+
+                // Clear input
+                questionInput.value = '';
+
+            } catch (error) {
+                console.error('Query failed:', error);
+                alert('Query failed: ' + error.message);
+            } finally {
+                hideButtonLoading();
+            }
+        }
+
+        function addToChatHistory(question, answer) {
+            const chatHistory = document.getElementById('chat-history');
+
+            const entry = document.createElement('div');
+            entry.className = 'chat-entry';
+
+            const timestamp = new Date().toLocaleString();
+
+            entry.innerHTML = `
+                <div class="question">Q: ${question}</div>
+                <div class="answer">${marked.parse(answer)}</div>
+                <div class="timestamp">${timestamp}</div>
+            `;
+
+            chatHistory.appendChild(entry);
+
+            // Auto-scroll to the new entry
+            setTimeout(() => {
+                entry.scrollIntoView({ behavior: "smooth", block: "start" });
+            }, 100);
+        }
+
+        // Event listeners
+        document.getElementById('ask-button').addEventListener('click', askQuestion);
+
+        document.getElementById('question-input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !isLoading) {
+                askQuestion();
+            }
+        });
+
+        document.getElementById('clear-history').addEventListener('click', () => {
+            if (confirm('Are you sure you want to clear the chat history?')) {
+                document.getElementById('chat-history').innerHTML = '';
+            }
+        });
+
+        document.getElementById('toggle-chat').addEventListener('click', () => {
+            const chatHistory = document.getElementById('chat-history');
+            const toggleBtn = document.getElementById('toggle-chat');
+
+            chatHistory.style.display = chatVisible ? 'none' : 'block';
+            toggleBtn.textContent = chatVisible ? '+' : '−';
+            chatVisible = !chatVisible;
+        });
+
+        // Initialize on page load
+        parseSelectedBooks();
+
+        // Focus on input field
+        document.getElementById('question-input').focus();
+    </script>
+</body>
+</html>

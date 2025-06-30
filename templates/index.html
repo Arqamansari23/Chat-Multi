@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Multi-Book Chat</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+    <h1>📚 Chat with Multiple Books</h1>
+
+    <form id="upload-form" enctype="multipart/form-data" onsubmit="return validateFiles()">
+        <input type="file" name="files" id="file-input" multiple required accept=".pdf">
+        <button type="submit">Upload Books</button>
+    </form>
+
+    <div id="loader">
+        <div class="spinner"></div>
+        <p>Processing PDF: Chunking, Embedding & Indexing...</p>
+        <div class="progress-container">
+            <div class="progress-bar" id="progress-bar"></div>
+        </div>
+        <div class="progress-text" id="progress-text">0%</div>
+    </div>
+
+    <h2>📘 Uploaded Books</h2>
+    <ul id="book-list"></ul>
+
+    <div id="book-selection-section" style="display: none;">
+        <h3>🧠 Select Books to Chat With</h3>
+        <div id="multi-select-container"></div>
+        <button id="chat-with-books-btn" type="button">💬 Chat with Selected Books</button>
+    </div>
+
+    <script>
+        let progressInterval;
+
+        function simulateProgress() {
+            let progress = 0;
+            const progressBar = document.getElementById('progress-bar');
+            const progressText = document.getElementById('progress-text');
+
+            progressInterval = setInterval(() => {
+                progress += Math.random() * 15;
+                if (progress > 95) progress = 95;
+                progressBar.style.width = progress + '%';
+                progressText.textContent = Math.round(progress) + '%';
+            }, 500);
+        }
+
+        function completeProgress() {
+            if (progressInterval) clearInterval(progressInterval);
+            document.getElementById('progress-bar').style.width = '100%';
+            document.getElementById('progress-text').textContent = '100%';
+            setTimeout(() => {
+                document.getElementById('loader').style.display = 'none';
+                document.getElementById('progress-bar').style.width = '0%';
+                document.getElementById('progress-text').textContent = '0%';
+            }, 500);
+        }
+
+        function validateFiles() {
+            const input = document.getElementById('file-input');
+            const files = input.files;
+            for (const file of files) {
+                if (!file.name.toLowerCase().endsWith('.pdf')) {
+                    alert(`${file.name} is not a PDF file.`);
+                    return false;
+                }
+                if (file.size > 500 * 1024 * 1024) {
+                    alert(`${file.name} exceeds the 500MB limit.`);
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        async function loadBooks() {
+            const res = await fetch('/books/');
+            const data = await res.json();
+            const bookList = document.getElementById('book-list');
+            const multiContainer = document.getElementById('multi-select-container');
+            const bookSelectionSection = document.getElementById('book-selection-section');
+
+            bookList.innerHTML = '';
+            multiContainer.innerHTML = '';
+
+            if (data.books && data.books.length > 0) {
+                bookSelectionSection.style.display = 'block';
+
+                data.books.forEach(book => {
+                    const li = document.createElement('li');
+                    li.textContent = book + ' ';
+                    const delBtn = document.createElement('button');
+                    delBtn.textContent = '❌ Delete';
+                    delBtn.onclick = async () => {
+                        const formData = new FormData();
+                        formData.append('book', book);
+                        await fetch('/delete_book/', {
+                            method: 'DELETE',
+                            body: formData
+                        });
+                        loadBooks();
+                    };
+                    li.appendChild(delBtn);
+                    bookList.appendChild(li);
+
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.value = book;
+                    checkbox.name = 'books';
+                    checkbox.id = 'book-' + book.replace(/\s+/g, '-');
+
+                    const label = document.createElement('label');
+                    label.setAttribute('for', checkbox.id);
+                    label.appendChild(checkbox);
+                    label.appendChild(document.createTextNode(' ' + book));
+
+                    multiContainer.appendChild(label);
+                    multiContainer.appendChild(document.createElement('br'));
+                });
+            } else {
+                bookSelectionSection.style.display = 'none';
+            }
+        }
+
+        document.getElementById('upload-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            document.getElementById('loader').style.display = 'block';
+            simulateProgress();
+
+            try {
+                const res = await fetch('/upload_books/', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await res.json();
+                if (data.books) {
+                    loadBooks();
+                    // Clear the file input
+                    document.getElementById('file-input').value = '';
+                } else {
+                    alert("Upload failed.");
+                }
+            } catch (err) {
+                alert("Upload error: " + err.message);
+            } finally {
+                completeProgress();
+            }
+        });
+
+        document.getElementById('chat-with-books-btn').addEventListener('click', () => {
+            const checkboxes = document.querySelectorAll('#multi-select-container input[type=checkbox]:checked');
+            const selectedBooks = Array.from(checkboxes).map(cb => cb.value);
+
+            if (selectedBooks.length === 0) {
+                alert('Please select at least one book to chat with.');
+                return;
+            }
+
+            // Create window title with selected books
+            const windowTitle = `Chat: ${selectedBooks.join(', ')}`;
+
+            // Create URL with selected books as parameters
+            const booksParam = encodeURIComponent(JSON.stringify(selectedBooks));
+            const chatUrl = `/chat?books=${booksParam}`;
+
+            // Open new window
+            const chatWindow = window.open(chatUrl, `chat_${Date.now()}`, 'width=1000,height=700,scrollbars=yes,resizable=yes');
+
+            if (chatWindow) {
+                chatWindow.document.title = windowTitle;
+            }
+        });
+
+        // Load books on page load
+        loadBooks();
+    </script>
+</body>
+</html>
