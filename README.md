@@ -175,7 +175,7 @@ This **federated RAG** approach ensures the answer is synthesized from all relev
 
 | Interface                   | PDF's uploaded            | Q/A From Multiple Books     |
 | --------------------------- | ------------------------- | --------------------------- |
-| ![](screenshots/Interface_page.PNG) | ![](screenshots/uploaded_page.PNG) | ![](screenshots/Chat_page.PNG) |
+| ![](screenshots/Interface_page.PNG) | ![](screenshots/uploaded_pages.PNG) | ![](screenshots/Chat_pages.PNG) |
 
 
 
