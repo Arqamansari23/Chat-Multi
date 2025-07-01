@@ -1,8 +1,14 @@
+version: "3.8"
+
 services:
   chat-multi-book:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    build: .
     ports:
       - "8000:8000"
-    restart: always
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      - vector_data:/app/vectorstore
+
+volumes:
+  vector_data:
