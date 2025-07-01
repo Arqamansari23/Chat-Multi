@@ -3,6 +3,7 @@ import os
 import shutil
 import re
 import unicodedata
+import fitz  # PyMuPDF
 from fastapi import FastAPI, UploadFile, Form, Request, Body, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -11,7 +12,6 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from typing import List
 from dotenv import load_dotenv
-from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain.vectorstores import FAISS
 from langchain.retrievers import BM25Retriever, EnsembleRetriever
@@ -20,7 +20,6 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.chat_models import ChatOpenAI
 from langchain.schema import Document
-import pdfplumber
 import logging
 
 # === Config ===
@@ -59,35 +58,135 @@ def sanitize_filename(filename):
     
     return name + ext
 
-def load_pdf_with_pdfplumber(path):
+def load_pdf_with_pymupdf(path):
     """
-    Load PDF using pdfplumber as fallback
+    Load PDF using PyMuPDF with enhanced text extraction
     """
     try:
-        logger.info(f"Loading PDF with pdfplumber: {path}")
+        logger.info(f"Loading PDF with PyMuPDF: {path}")
         documents = []
         
-        with pdfplumber.open(path) as pdf:
-            for page_num, page in enumerate(pdf.pages):
-                text = page.extract_text()
-                if text and text.strip():  # Only add pages with actual text content
-                    doc = Document(
-                        page_content=text,
-                        metadata={
-                            "source": path,
-                            "page": page_num + 1
-                        }
-                    )
-                    documents.append(doc)
+        # Open PDF document
+        doc = fitz.open(path)
+        
+        if doc.page_count == 0:
+            raise ValueError("PDF has no pages")
+        
+        for page_num in range(doc.page_count):
+            page = doc[page_num]
+            
+            # Extract text with better formatting preservation
+            text = page.get_text("text")
+            
+            # Alternative: get text with layout information (slower but better quality)
+            # text = page.get_text("blocks")  # Returns structured blocks
+            # text = "\n".join([block[4] for block in text if block[6] == 0])  # Extract text from blocks
+            
+            if text and text.strip():  # Only add pages with actual text content
+                # Clean up the text
+                text = clean_extracted_text(text)
+                
+                document = Document(
+                    page_content=text,
+                    metadata={
+                        "source": path,
+                        "page": page_num + 1,
+                        "total_pages": doc.page_count
+                    }
+                )
+                documents.append(document)
+        
+        doc.close()  # Always close the document
         
         if not documents:
-            raise ValueError("No text content found in PDF using pdfplumber")
+            raise ValueError("No text content found in PDF")
         
-        logger.info(f"Successfully loaded PDF with pdfplumber: {len(documents)} pages")
+        logger.info(f"Successfully loaded PDF with PyMuPDF: {len(documents)} pages")
         return documents
         
     except Exception as e:
-        logger.error(f"Error loading PDF with pdfplumber {path}: {str(e)}")
+        logger.error(f"Error loading PDF with PyMuPDF {path}: {str(e)}")
+        # Ensure document is closed even if error occurs
+        try:
+            if 'doc' in locals():
+                doc.close()
+        except:
+            pass
+        raise
+
+def clean_extracted_text(text):
+    """
+    Clean up extracted text from PyMuPDF
+    """
+    # Remove excessive whitespace while preserving paragraph structure
+    text = re.sub(r'\n\s*\n\s*\n', '\n\n', text)  # Max 2 consecutive newlines
+    text = re.sub(r' +', ' ', text)  # Multiple spaces to single space
+    text = re.sub(r'\t+', ' ', text)  # Tabs to spaces
+    
+    # Remove trailing whitespace from each line
+    lines = text.split('\n')
+    lines = [line.rstrip() for line in lines]
+    text = '\n'.join(lines)
+    
+    return text.strip()
+
+def extract_pdf_with_layout_analysis(path):
+    """
+    Advanced PDF extraction with layout analysis using PyMuPDF
+    This function provides better structure recognition
+    """
+    try:
+        logger.info(f"Extracting PDF with layout analysis: {path}")
+        documents = []
+        
+        doc = fitz.open(path)
+        
+        for page_num in range(doc.page_count):
+            page = doc[page_num]
+            
+            # Get text blocks with position information
+            blocks = page.get_text("dict")
+            
+            # Extract text maintaining structure
+            page_text = ""
+            for block in blocks["blocks"]:
+                if "lines" in block:  # Text block
+                    for line in block["lines"]:
+                        line_text = ""
+                        for span in line["spans"]:
+                            line_text += span["text"]
+                        page_text += line_text + "\n"
+                    page_text += "\n"  # Add spacing between blocks
+            
+            if page_text.strip():
+                page_text = clean_extracted_text(page_text)
+                
+                document = Document(
+                    page_content=page_text,
+                    metadata={
+                        "source": path,
+                        "page": page_num + 1,
+                        "total_pages": doc.page_count,
+                        "extraction_method": "layout_analysis"
+                    }
+                )
+                documents.append(document)
+        
+        doc.close()
+        
+        if not documents:
+            raise ValueError("No text content found using layout analysis")
+        
+        logger.info(f"Successfully extracted PDF with layout analysis: {len(documents)} pages")
+        return documents
+        
+    except Exception as e:
+        logger.error(f"Layout analysis failed for {path}: {str(e)}")
+        try:
+            if 'doc' in locals():
+                doc.close()
+        except:
+            pass
         raise
 
 # === Prompt ===
@@ -125,41 +224,47 @@ retriever_map = {}
 
 def load_and_split_pdf(path):
     """
-    Load and split PDF with fallback to pdfplumber if PyPDFLoader fails
+    Load and split PDF using PyMuPDF with fallback to layout analysis
     """
     try:
         logger.info(f"Loading PDF: {path}")
         
-        # First, try with PyPDFLoader
+        # First, try standard text extraction
         try:
-            loader = PyPDFLoader(path)
-            pages = loader.load()
+            pages = load_pdf_with_pymupdf(path)
+            logger.info(f"Successfully loaded PDF with standard PyMuPDF extraction")
             
-            if not pages:
-                raise ValueError("PDF appears to be empty with PyPDFLoader")
+        except Exception as standard_error:
+            logger.warning(f"Standard PyMuPDF extraction failed for {path}: {str(standard_error)}")
+            logger.info("Attempting layout analysis extraction...")
             
-            logger.info(f"Successfully loaded PDF with PyPDFLoader: {len(pages)} pages")
-            
-        except Exception as pypdf_error:
-            logger.warning(f"PyPDFLoader failed for {path}: {str(pypdf_error)}")
-            logger.info("Attempting to load with pdfplumber as fallback...")
-            
-            # Fallback to pdfplumber
-            pages = load_pdf_with_pdfplumber(path)
+            # Fallback to layout analysis
+            try:
+                pages = extract_pdf_with_layout_analysis(path)
+                logger.info(f"Successfully loaded PDF with layout analysis")
+            except Exception as layout_error:
+                logger.error(f"Layout analysis also failed: {str(layout_error)}")
+                raise Exception(f"Both extraction methods failed. Standard: {str(standard_error)}, Layout: {str(layout_error)}")
         
         # Use sanitized filename for title
         original_filename = os.path.basename(path)
         title = sanitize_filename(original_filename).replace(".pdf", "")
         
         logger.info(f"Splitting PDF into chunks: {title}")
-        splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=1000, 
+            chunk_overlap=200,
+            separators=["\n\n", "\n", ". ", " ", ""]  # Better separation for PyMuPDF extracted text
+        )
         chunks = splitter.split_documents(pages)
         
         if not chunks:
             raise ValueError("No text content found in PDF after splitting")
         
+        # Add metadata to chunks
         for chunk in chunks:
             chunk.metadata["book_title"] = title
+            chunk.metadata["extraction_tool"] = "pymupdf"
             
         logger.info(f"Successfully processed PDF: {title} ({len(chunks)} chunks)")
         return chunks, title
