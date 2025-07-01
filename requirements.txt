@@ -16,3 +16,5 @@ langchain-text-splitters
 pypdf
 rank_bm25
 pdfplumber
+PyMuPDF
+fitz

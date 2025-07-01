@@ -8,20 +8,20 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies including git
 RUN apt-get update && apt-get install -y \
+    git \
     build-essential \
     poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements file
-COPY requirements.txt .
+# Clone your repository
+RUN git clone https://github.com/Arqamansari23/Chat-With-Multiple-Books-With-Ensemble-Retriever-BM25-Search-Symentic-Search-.git /app
+
+
 
 # Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy the full project
-COPY . .
+RUN pip install --no-cache-dir -r /app/requirements.txt
 
 # Expose FastAPI port
 EXPOSE 8000
