@@ -46,4 +46,4 @@ temp_pdfs/
 node_modules/
 
 .dockerignore
-
+.books.metadata.json

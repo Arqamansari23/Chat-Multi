@@ -1,9 +1,10 @@
-
 import os
 import shutil
 import re
 import unicodedata
 import fitz  # PyMuPDF
+import json
+from datetime import datetime
 from fastapi import FastAPI, UploadFile, Form, Request, Body, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -20,6 +21,7 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.chat_models import ChatOpenAI
 from langchain.schema import Document
+
 import logging
 
 # === Config ===
@@ -31,6 +33,7 @@ logger = logging.getLogger(__name__)
 
 VECTORSTORE_DIR = "vectorstores"
 TEMP_DIR = "temp_pdfs"
+METADATA_FILE = "books_metadata.json"  # New: Store book metadata
 MAX_FILE_SIZE_MB = 500
 EMBEDDING_MODEL = OpenAIEmbeddings(model="text-embedding-3-small")
 LLM = ChatOpenAI(model_name="gpt-3.5-turbo", temperature=0.1)
@@ -57,6 +60,58 @@ def sanitize_filename(filename):
         name = "document"
     
     return name + ext
+
+def save_books_metadata(books_metadata):
+    """
+    Save books metadata to JSON file
+    """
+    try:
+        with open(METADATA_FILE, 'w', encoding='utf-8') as f:
+            json.dump(books_metadata, f, indent=2, ensure_ascii=False)
+        logger.info(f"Books metadata saved to {METADATA_FILE}")
+    except Exception as e:
+        logger.error(f"Error saving books metadata: {str(e)}")
+
+def load_books_metadata():
+    """
+    Load books metadata from JSON file
+    """
+    try:
+        if os.path.exists(METADATA_FILE):
+            with open(METADATA_FILE, 'r', encoding='utf-8') as f:
+                metadata = json.load(f)
+            logger.info(f"Loaded books metadata: {len(metadata)} books")
+            return metadata
+        else:
+            logger.info("No existing books metadata found")
+            return {}
+    except Exception as e:
+        logger.error(f"Error loading books metadata: {str(e)}")
+        return {}
+
+def update_book_metadata(title, original_filename, sanitized_filename, chunk_count):
+    """
+    Update metadata for a single book
+    """
+    metadata = load_books_metadata()
+    metadata[title] = {
+        "original_filename": original_filename,
+        "sanitized_filename": sanitized_filename,
+        "chunk_count": chunk_count,
+        "upload_date": str(datetime.now()),
+        "vector_store_path": os.path.join(VECTORSTORE_DIR, title),
+        "temp_file_path": os.path.join(TEMP_DIR, sanitized_filename)
+    }
+    save_books_metadata(metadata)
+
+def remove_book_metadata(title):
+    """
+    Remove metadata for a single book
+    """
+    metadata = load_books_metadata()
+    if title in metadata:
+        del metadata[title]
+        save_books_metadata(metadata)
 
 def load_pdf_with_pymupdf(path):
     """
@@ -189,6 +244,82 @@ def extract_pdf_with_layout_analysis(path):
             pass
         raise
 
+def recover_existing_vectorstores():
+    """
+    Recover existing vector stores on application startup
+    """
+    logger.info("Starting vector store recovery process...")
+    
+    if not os.path.exists(VECTORSTORE_DIR):
+        logger.info("No vectorstore directory found")
+        return {}
+    
+    recovered_retrievers = {}
+    books_metadata = load_books_metadata()
+    
+    # Get all subdirectories in vectorstore directory
+    try:
+        vectorstore_dirs = [d for d in os.listdir(VECTORSTORE_DIR) 
+                          if os.path.isdir(os.path.join(VECTORSTORE_DIR, d))]
+        
+        for title in vectorstore_dirs:
+            try:
+                logger.info(f"Attempting to recover vector store: {title}")
+                
+                # Check if FAISS index files exist
+                vectorstore_path = os.path.join(VECTORSTORE_DIR, title)
+                index_file = os.path.join(vectorstore_path, "index.faiss")
+                pkl_file = os.path.join(vectorstore_path, "index.pkl")
+                
+                if os.path.exists(index_file) and os.path.exists(pkl_file):
+                    # Load the existing FAISS vector store
+                    vectorstore = FAISS.load_local(
+                        vectorstore_path, 
+                        EMBEDDING_MODEL,
+                        allow_dangerous_deserialization=True
+                    )
+                    
+                    # Get document chunks from the vector store
+                    # Note: We can't directly get chunks from FAISS, so we'll create a basic retriever
+                    faiss_retriever = vectorstore.as_retriever(
+                        search_type="similarity_score_threshold",
+                        search_kwargs={'score_threshold': 0.8, 'k': 4}
+                    )
+                    
+                    # For BM25, we need the original documents, but since we can't get them back,
+                    # we'll use a fallback approach with just FAISS
+                    recovered_retrievers[title] = faiss_retriever
+                    
+                    logger.info(f"Successfully recovered vector store: {title}")
+                    
+                    # Update metadata if not present
+                    if title not in books_metadata:
+                        books_metadata[title] = {
+                            "original_filename": f"{title}.pdf",
+                            "sanitized_filename": f"{title}.pdf",
+                            "chunk_count": "unknown",
+                            "upload_date": "recovered",
+                            "vector_store_path": vectorstore_path,
+                            "temp_file_path": "recovered"
+                        }
+                else:
+                    logger.warning(f"Missing FAISS files for {title}, skipping recovery")
+                    
+            except Exception as e:
+                logger.error(f"Failed to recover vector store {title}: {str(e)}")
+                continue
+        
+        # Save updated metadata
+        if books_metadata:
+            save_books_metadata(books_metadata)
+        
+        logger.info(f"Recovery completed. Recovered {len(recovered_retrievers)} vector stores.")
+        return recovered_retrievers
+        
+    except Exception as e:
+        logger.error(f"Error during vector store recovery: {str(e)}")
+        return {}
+
 # === Prompt ===
 prompt = ChatPromptTemplate.from_messages([
     (
@@ -220,6 +351,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Global retriever map - will be populated on startup
 retriever_map = {}
 
 def load_and_split_pdf(path):
@@ -311,6 +443,24 @@ def create_ensemble_retriever(chunks, vectorstore):
         logger.error(f"Error creating ensemble retriever: {str(e)}")
         raise
 
+# === Startup Event ===
+@app.on_event("startup")
+async def startup_event():
+    """
+    Initialize application and recover existing vector stores
+    """
+    logger.info("Application starting up...")
+    
+    # Create necessary directories
+    os.makedirs(TEMP_DIR, exist_ok=True)
+    os.makedirs(VECTORSTORE_DIR, exist_ok=True)
+    
+    # Recover existing vector stores
+    global retriever_map
+    retriever_map = recover_existing_vectorstores()
+    
+    logger.info(f"Application startup completed. {len(retriever_map)} books loaded.")
+
 # === Routes ===
 @app.get("/", response_class=HTMLResponse)
 async def serve_home(request: Request):
@@ -356,9 +506,21 @@ async def upload_books(files: List[UploadFile]):
             # Process PDF
             try:
                 chunks, title = load_and_split_pdf(file_path)
+                
+                # Check if book already exists
+                if title in retriever_map:
+                    errors.append(f"Book '{title}' already exists. Please delete it first or use a different filename.")
+                    if os.path.exists(file_path):
+                        os.remove(file_path)
+                    continue
+                
                 vectorstore = save_faiss_index(chunks, title)
                 retriever = create_ensemble_retriever(chunks, vectorstore)
                 retriever_map[title] = retriever
+                
+                # Update metadata
+                update_book_metadata(title, file.filename, sanitized_filename, len(chunks))
+                
                 added_books.append(title)
                 
             except Exception as pdf_error:
@@ -431,18 +593,39 @@ async def query_multiple_books(books: List[str] = Body(...), query: str = Body(.
 @app.delete("/delete_book/")
 async def delete_book(book: str = Form(...)):
     try:
-        book_path = os.path.join(VECTORSTORE_DIR, book)
-        if book in retriever_map and os.path.exists(book_path):
+        # Remove from retriever map
+        if book in retriever_map:
             del retriever_map[book]
+        
+        # Remove vector store directory
+        book_path = os.path.join(VECTORSTORE_DIR, book)
+        if os.path.exists(book_path):
             shutil.rmtree(book_path, ignore_errors=True)
-            return {"message": f"{book} deleted successfully."}
-        raise HTTPException(status_code=404, detail="Book not found.")
-    except HTTPException:
-        raise
+            logger.info(f"Deleted vector store directory: {book_path}")
+        
+        # Get metadata to find temp file
+        books_metadata = load_books_metadata()
+        if book in books_metadata:
+            temp_file_path = books_metadata[book].get("temp_file_path")
+            if temp_file_path and os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
+                logger.info(f"Deleted temp file: {temp_file_path}")
+        
+        # Remove from metadata
+        remove_book_metadata(book)
+        
+        logger.info(f"Successfully deleted book: {book}")
+        return {"message": f"{book} deleted successfully."}
+        
     except Exception as e:
         logger.error(f"Error deleting book {book}: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to delete book")
 
 @app.get("/health")
 async def health_check():
-    return {"Status": "Okay Api is Running Up Successfully"}
+    return {
+        "Status": "Okay Api is Running Up Successfully",
+        "books_loaded": len(retriever_map),
+        "vectorstore_dir": VECTORSTORE_DIR,
+        "temp_dir": TEMP_DIR
+    }
