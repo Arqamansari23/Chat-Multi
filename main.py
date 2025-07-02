@@ -7,7 +7,7 @@ import json
 from datetime import datetime
 from fastapi import FastAPI, UploadFile, Form, Request, Body, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -21,8 +21,10 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.chat_models import ChatOpenAI
 from langchain.schema import Document
+import asyncio
 
 import logging
+
 
 # === Config ===
 load_dotenv()
@@ -36,7 +38,7 @@ TEMP_DIR = "temp_pdfs"
 METADATA_FILE = "books_metadata.json"  # New: Store book metadata
 MAX_FILE_SIZE_MB = 500
 EMBEDDING_MODEL = OpenAIEmbeddings(model="text-embedding-3-small")
-LLM = ChatOpenAI(model_name="gpt-3.5-turbo", temperature=0.1)
+LLM = ChatOpenAI(model_name="gpt-3.5-turbo", temperature=0.1, streaming=True)
 
 # === Helper Functions ===
 def sanitize_filename(filename):
@@ -443,6 +445,53 @@ def create_ensemble_retriever(chunks, vectorstore):
         logger.error(f"Error creating ensemble retriever: {str(e)}")
         raise
 
+# === Streaming Generator Function ===
+async def generate_streaming_response(books: List[str], query: str):
+    """
+    Generate streaming response for the multi-book query
+    """
+    try:
+        combined_docs = []
+
+        # Collect documents from all selected books
+        for book in books:
+            retriever = retriever_map.get(book)
+            if retriever:
+                try:
+                    docs = retriever.invoke(query)
+                    combined_docs.extend(docs)
+                except Exception as e:
+                    logger.error(f"Error querying book {book}: {str(e)}")
+                    continue
+
+        # If no relevant documents are found, return "I don't know"
+        if not combined_docs:
+            yield "data: " + json.dumps({"content": "I don't know.", "done": True}) + "\n\n"
+            return
+
+        # Stream the response from LLM
+        try:
+            # Get the streaming response from the chain
+            response_stream = llm_chain.astream({"input": query, "context": combined_docs})
+            
+            async for chunk in response_stream:
+                if chunk:
+                    # Send each chunk as server-sent events
+                    yield "data: " + json.dumps({"content": chunk, "done": False}) + "\n\n"
+                    # Add a small delay to make streaming more visible
+                    await asyncio.sleep(0.05)
+            
+            # Send completion signal
+            yield "data: " + json.dumps({"content": "", "done": True}) + "\n\n"
+            
+        except Exception as e:
+            logger.error(f"Error in streaming response: {str(e)}")
+            yield "data: " + json.dumps({"content": f"Error generating response: {str(e)}", "done": True}) + "\n\n"
+            
+    except Exception as e:
+        logger.error(f"Error in generate_streaming_response: {str(e)}")
+        yield "data: " + json.dumps({"content": f"Query processing failed: {str(e)}", "done": True}) + "\n\n"
+
 # === Startup Event ===
 @app.on_event("startup")
 async def startup_event():
@@ -563,6 +612,23 @@ async def list_books():
         logger.error(f"Error listing books: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to list books")
 
+# Updated streaming endpoint
+@app.post("/multi_query_stream/")
+async def query_multiple_books_stream(books: List[str] = Body(...), query: str = Body(...)):
+    """
+    Streaming endpoint for multi-book queries
+    """
+    return StreamingResponse(
+        generate_streaming_response(books, query),
+        media_type="text/plain",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Content-Type": "text/event-stream",
+        }
+    )
+
+# Keep the original endpoint for backward compatibility
 @app.post("/multi_query/")
 async def query_multiple_books(books: List[str] = Body(...), query: str = Body(...)):
     try:

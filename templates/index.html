@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -73,6 +74,13 @@
                 }
             }
             return true;
+        }
+
+        function clearAllCheckboxes() {
+            const checkboxes = document.querySelectorAll('#multi-select-container input[type=checkbox]');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = false;
+            });
         }
 
         async function loadBooks() {
@@ -159,6 +167,9 @@
                 return;
             }
 
+            // Clear all checkboxes BEFORE opening the chat window
+            clearAllCheckboxes();
+
             // Create window title with selected books
             const windowTitle = `Chat: ${selectedBooks.join(', ')}`;
 
@@ -179,3 +190,35 @@
     </script>
 </body>
 </html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -24,7 +24,7 @@
         .chat-content {
             display: flex;
             flex-direction: column;
-            align-items: center; /* Center the answer box */
+            align-items: center;
             margin-bottom: 20px;
         }
 
@@ -134,9 +134,9 @@
             margin-bottom: 120px;
             display: flex;
             flex-direction: column;
-            height: 500px; /* Fixed static height */
-            width: 95%; /* Make it wider */
-            max-width: 1100px; /* Maximum width */
+            height: 500px;
+            width: 95%;
+            max-width: 1100px;
             margin-left: auto;
             margin-right: auto;
         }
@@ -195,7 +195,7 @@
             flex: 1;
             overflow-y: auto;
             padding-right: 10px;
-            height: 400px; /* Fixed height for consistent scrolling */
+            height: 400px;
             max-height: 400px;
         }
 
@@ -259,6 +259,137 @@
             margin-top: 10px;
         }
 
+        /* Streaming-specific styles */
+        .streaming-answer {
+            background: #f8f9fa;
+            border: 1px dashed #0066cc;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 10px;
+            min-height: 50px;
+            position: relative;
+        }
+
+        .streaming-indicator {
+            display: inline-flex;
+            align-items: center;
+            color: #0066cc;
+            font-size: 0.9em;
+            margin-bottom: 10px;
+        }
+
+        .streaming-dots {
+            display: inline-block;
+            margin-left: 8px;
+        }
+
+        .streaming-dots::after {
+            content: '';
+            animation: dots 1.5s steps(5, end) infinite;
+        }
+
+        @keyframes dots {
+            0%, 20% { content: ''; }
+            40% { content: '.'; }
+            60% { content: '..'; }
+            80%, 100% { content: '...'; }
+        }
+
+        .streaming-content {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            line-height: 1.6;
+        }
+
+        /* Enhanced styles for real-time rendered markdown */
+        .streaming-content h1,
+        .streaming-content h2,
+        .streaming-content h3,
+        .streaming-content h4,
+        .streaming-content h5,
+        .streaming-content h6 {
+            margin-top: 1.5em;
+            margin-bottom: 0.5em;
+            font-weight: bold;
+        }
+
+        .streaming-content h1 { font-size: 2em; color: #333; }
+        .streaming-content h2 { font-size: 1.5em; color: #444; }
+        .streaming-content h3 { font-size: 1.3em; color: #555; }
+        .streaming-content h4 { font-size: 1.1em; color: #666; }
+        .streaming-content h5 { font-size: 1em; color: #777; font-weight: bold; }
+        .streaming-content h6 { font-size: 0.9em; color: #888; font-weight: bold; }
+
+        .streaming-content p {
+            margin-bottom: 1em;
+        }
+
+        .streaming-content ul, .streaming-content ol {
+            margin-bottom: 1em;
+            padding-left: 2em;
+        }
+
+        .streaming-content li {
+            margin-bottom: 0.5em;
+        }
+
+        .streaming-content strong {
+            font-weight: bold;
+        }
+
+        .streaming-content em {
+            font-style: italic;
+        }
+
+        .streaming-content code {
+            background-color: #f4f4f4;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+
+        .streaming-content pre {
+            background-color: #f4f4f4;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+            margin-bottom: 1em;
+        }
+
+        .streaming-content blockquote {
+            border-left: 4px solid #ddd;
+            padding-left: 1em;
+            margin-left: 0;
+            font-style: italic;
+            color: #666;
+        }
+
+        .stream-complete {
+            border: 1px solid #28a745;
+            background: #f8fff9;
+        }
+
+        .stream-error {
+            border: 1px solid #dc3545;
+            background: #fff5f5;
+            color: #dc3545;
+        }
+
+        /* Typing cursor effect */
+        .typing-cursor {
+            display: inline-block;
+            width: 2px;
+            height: 1.2em;
+            background-color: #0066cc;
+            animation: blink 1s infinite;
+            margin-left: 2px;
+        }
+
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+
         /* Responsive design */
         @media (max-width: 768px) {
             .chat-container {
@@ -267,7 +398,7 @@
             }
 
             #answer-box {
-                height: 450px; /* Fixed height for mobile */
+                height: 450px;
                 width: 98%;
                 margin-bottom: 140px;
             }
@@ -342,6 +473,181 @@
         let selectedBooks = [];
         let chatVisible = true;
         let isLoading = false;
+        let currentEventSource = null;
+        let isUserScrolling = false; // Track if user is manually scrolling
+        let autoScrollEnabled = true; // Control auto-scroll behavior
+
+        // Improved real-time markdown processing function with consistent spacing
+        function processMarkdownRealTime(text) {
+            let processedText = text;
+            
+            // First, normalize line breaks and remove excessive whitespace
+            processedText = processedText
+                .replace(/\r\n/g, '\n')
+                .replace(/\r/g, '\n')
+                .replace(/\n{3,}/g, '\n\n') // Replace 3+ consecutive line breaks with 2
+                .replace(/[ \t]+/g, ' ') // Replace multiple spaces/tabs with single space
+                .replace(/[ \t]+\n/g, '\n') // Remove trailing spaces before line breaks
+                .replace(/\n[ \t]+/g, '\n') // Remove leading spaces after line breaks
+                .trim();
+            
+            // Handle all heading levels (order matters - start with most specific)
+            processedText = processedText
+                // Headers - process from most specific to least specific
+                .replace(/^###### (.*?)$/gm, '<h6>$1</h6>')
+                .replace(/^##### (.*?)$/gm, '<h5>$1</h5>')
+                .replace(/^#### (.*?)$/gm, '<h4>$1</h4>')
+                .replace(/^### (.*?)$/gm, '<h3>$1</h3>')
+                .replace(/^## (.*?)$/gm, '<h2>$1</h2>')
+                .replace(/^# (.*?)$/gm, '<h1>$1</h1>')
+                
+                // Bold and italic (handle nested patterns carefully)
+                .replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>')
+                .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+                .replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>')
+                
+                // Code blocks (handle before inline code)
+                .replace(/```([^`]*?)```/gs, '<pre><code>$1</code></pre>')
+                .replace(/`([^`]+)`/g, '<code>$1</code>')
+                
+                // Lists - basic support
+                .replace(/^\* (.+)$/gm, '<li>$1</li>')
+                .replace(/^\d+\. (.+)$/gm, '<li>$1</li>')
+                
+                // Blockquotes
+                .replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>');
+            
+            // Handle paragraph breaks more carefully - CONSISTENT SPACING
+            let paragraphs = processedText.split(/\n\s*\n/);
+            processedText = paragraphs.map(para => {
+                para = para.trim();
+                if (!para) return '';
+                
+                // Don't wrap if it's already a block element
+                if (para.match(/^<(h[1-6]|div|ul|ol|blockquote|pre|li)/)) {
+                    return para;
+                }
+                
+                // Handle list items specially
+                if (para.includes('<li>')) {
+                    return '<ul>' + para + '</ul>';
+                }
+                
+                // Regular paragraph - use single line break for consistency
+                return '<p>' + para.replace(/\n/g, '<br>') + '</p>';
+            }).filter(para => para).join('\n');
+            
+            // Clean up multiple consecutive list wrappers and other issues
+            processedText = processedText
+                .replace(/<\/ul>\s*<ul>/g, '')
+                .replace(/<\/ol>\s*<ol>/g, '')
+                .replace(/<p><\/p>/g, '')
+                .replace(/<p>(<h[1-6]>)/g, '$1')
+                .replace(/(<\/h[1-6]>)<\/p>/g, '$1')
+                .replace(/<p>(<ul>)/g, '$1')
+                .replace(/(<\/ul>)<\/p>/g, '$1')
+                .replace(/<p>(<blockquote>)/g, '$1')
+                .replace(/(<\/blockquote>)<\/p>/g, '$1')
+                .replace(/<p>(<pre>)/g, '$1')
+                .replace(/(<\/pre>)<\/p>/g, '$1');
+            
+            return processedText;
+        }
+
+        // Enhanced function to update streaming content with improved auto-scroll control
+        function updateStreamingContent(element, newContent, isComplete = false) {
+            // Store raw content for processing
+            if (!element.rawContent) {
+                element.rawContent = '';
+            }
+            element.rawContent += newContent;
+            
+            // Process the accumulated content with improved markdown processor
+            let processedContent = processMarkdownRealTime(element.rawContent);
+            
+            // Add typing cursor if not complete
+            if (!isComplete) {
+                processedContent += '<span class="typing-cursor"></span>';
+            }
+            
+            // Update the HTML content
+            element.innerHTML = processedContent;
+            
+            // Auto-scroll only if user hasn't manually scrolled and auto-scroll is enabled
+            if (autoScrollEnabled && !isUserScrolling) {
+                const chatHistory = document.getElementById('chat-history');
+                chatHistory.scrollTop = chatHistory.scrollHeight;
+            }
+        }
+
+        // Add scroll event listener to detect user interaction
+        function setupScrollControl() {
+            const chatHistory = document.getElementById('chat-history');
+            let scrollTimeout;
+            
+            chatHistory.addEventListener('scroll', function() {
+                // Check if user is near the bottom (within 50px)
+                const isNearBottom = (chatHistory.scrollHeight - chatHistory.scrollTop - chatHistory.clientHeight) < 50;
+                
+                // If user scrolled up significantly, disable auto-scroll
+                if (!isNearBottom) {
+                    isUserScrolling = true;
+                    autoScrollEnabled = false;
+                } else {
+                    // If user scrolled back to bottom, re-enable auto-scroll
+                    isUserScrolling = false;
+                    autoScrollEnabled = true;
+                }
+                
+                // Clear existing timeout
+                clearTimeout(scrollTimeout);
+                
+                // Reset user scrolling flag after 2 seconds of no scrolling
+                scrollTimeout = setTimeout(() => {
+                    if (isNearBottom) {
+                        isUserScrolling = false;
+                        autoScrollEnabled = true;
+                    }
+                }, 2000);
+            });
+            
+            // Add scroll indicator when auto-scroll is disabled
+            chatHistory.addEventListener('scroll', function() {
+                const isNearBottom = (chatHistory.scrollHeight - chatHistory.scrollTop - chatHistory.clientHeight) < 50;
+                
+                // Create or update scroll indicator
+                let scrollIndicator = document.getElementById('scroll-indicator');
+                if (!isNearBottom && !scrollIndicator) {
+                    scrollIndicator = document.createElement('div');
+                    scrollIndicator.id = 'scroll-indicator';
+                    scrollIndicator.innerHTML = '↓ Scroll to bottom for live updates';
+                    scrollIndicator.style.cssText = `
+                        position: fixed;
+                        bottom: 140px;
+                        right: 20px;
+                        background: #0066cc;
+                        color: white;
+                        padding: 8px 12px;
+                        border-radius: 20px;
+                        font-size: 0.9em;
+                        cursor: pointer;
+                        z-index: 1002;
+                        animation: fadeIn 0.3s ease;
+                    `;
+                    
+                    scrollIndicator.addEventListener('click', function() {
+                        chatHistory.scrollTop = chatHistory.scrollHeight;
+                        autoScrollEnabled = true;
+                        isUserScrolling = false;
+                        scrollIndicator.remove();
+                    });
+                    
+                    document.body.appendChild(scrollIndicator);
+                } else if (isNearBottom && scrollIndicator) {
+                    scrollIndicator.remove();
+                }
+            });
+        }
 
         // Parse selected books from URL parameters
         function parseSelectedBooks() {
@@ -383,7 +689,7 @@
             const buttonText = document.getElementById('button-text');
 
             askButton.disabled = true;
-            buttonText.innerHTML = '<div class="button-spinner"></div>Loading...';
+            buttonText.innerHTML = '<div class="button-spinner"></div>Streaming...';
             isLoading = true;
         }
 
@@ -394,6 +700,64 @@
             askButton.disabled = false;
             buttonText.textContent = 'Ask Question';
             isLoading = false;
+        }
+
+        function createStreamingAnswerElement(question) {
+            const chatHistory = document.getElementById('chat-history');
+            const timestamp = new Date().toLocaleString();
+
+            const entry = document.createElement('div');
+            entry.className = 'chat-entry';
+
+            entry.innerHTML = `
+                <div class="question">Q: ${question}</div>
+                <div class="streaming-answer">
+                    <div class="streaming-indicator">
+                        <span>🤖 Thinking</span>
+                        <span class="streaming-dots"></span>
+                    </div>
+                    <div class="streaming-content" id="streaming-content-${Date.now()}"></div>
+                </div>
+                <div class="timestamp">${timestamp}</div>
+            `;
+
+            chatHistory.appendChild(entry);
+
+            // Auto-scroll to the new entry only if auto-scroll is enabled
+            if (autoScrollEnabled && !isUserScrolling) {
+                setTimeout(() => {
+                    entry.scrollIntoView({ behavior: "smooth", block: "start" });
+                }, 100);
+            }
+
+            return entry.querySelector('.streaming-content');
+        }
+
+        // FIXED: Use consistent markdown processing for finalization
+        function finalizeStreamingAnswer(streamingElement, isError = false) {
+            const answerContainer = streamingElement.parentElement;
+            const indicator = answerContainer.querySelector('.streaming-indicator');
+            
+            if (indicator) {
+                indicator.remove();
+            }
+
+            // Remove typing cursor
+            const cursor = streamingElement.querySelector('.typing-cursor');
+            if (cursor) {
+                cursor.remove();
+            }
+
+            // IMPORTANT FIX: Keep using the same markdown processor for consistency
+            // Don't use marked.js for final processing to avoid formatting differences
+            if (!isError && streamingElement.rawContent) {
+                // Use the same processMarkdownRealTime function for final processing
+                const finalContent = processMarkdownRealTime(streamingElement.rawContent);
+                streamingElement.innerHTML = finalContent;
+            }
+
+            // Update container styling
+            answerContainer.className = isError ? 'answer stream-error' : 'answer stream-complete';
         }
 
         async function askQuestion() {
@@ -412,10 +776,27 @@
                 return;
             }
 
+            // Reset scroll control for new question
+            autoScrollEnabled = true;
+            isUserScrolling = false;
+
+            // Close any existing EventSource
+            if (currentEventSource) {
+                currentEventSource.close();
+                currentEventSource = null;
+            }
+
             showButtonLoading();
 
+            // Create streaming answer element
+            const streamingElement = createStreamingAnswerElement(question);
+
+            // Clear input immediately
+            questionInput.value = '';
+
             try {
-                const response = await fetch('/multi_query/', {
+                // Create a POST request to initiate streaming
+                const response = await fetch('/multi_query_stream/', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -424,42 +805,76 @@
                     })
                 });
 
-                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
 
-                // Add to chat history
-                addToChatHistory(question, data.answer || 'No response.');
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                let isComplete = false;
 
-                // Clear input
-                questionInput.value = '';
+                // Update indicator to show streaming
+                const indicator = streamingElement.parentElement.querySelector('.streaming-indicator span');
+                if (indicator) {
+                    indicator.textContent = '🤖 Answering';
+                }
+
+                try {
+                    while (!isComplete) {
+                        const { done, value } = await reader.read();
+
+                        if (done) {
+                            break;
+                        }
+
+                        buffer += decoder.decode(value, { stream: true });
+                        const lines = buffer.split('\n');
+                        buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+                        for (const line of lines) {
+                            if (line.trim() === '') continue;
+                            
+                            if (line.startsWith('data: ')) {
+                                try {
+                                    const jsonData = JSON.parse(line.slice(6));
+                                    
+                                    if (jsonData.content) {
+                                        // Update streaming content with improved real-time markdown processing
+                                        updateStreamingContent(streamingElement, jsonData.content, false);
+                                    }
+                                    
+                                    if (jsonData.done) {
+                                        isComplete = true;
+                                        // Final update without cursor
+                                        updateStreamingContent(streamingElement, '', true);
+                                        break;
+                                    }
+                                } catch (parseError) {
+                                    console.error('Error parsing streaming data:', parseError);
+                                }
+                            }
+                        }
+                    }
+
+                    // Finalize the streaming answer
+                    finalizeStreamingAnswer(streamingElement, false);
+
+                } catch (streamError) {
+                    console.error('Streaming error:', streamError);
+                    streamingElement.innerHTML = 'Error occurred while streaming the response.';
+                    finalizeStreamingAnswer(streamingElement, true);
+                } finally {
+                    reader.releaseLock();
+                }
 
             } catch (error) {
                 console.error('Query failed:', error);
-                alert('Query failed: ' + error.message);
+                streamingElement.innerHTML = `Query failed: ${error.message}`;
+                finalizeStreamingAnswer(streamingElement, true);
             } finally {
                 hideButtonLoading();
             }
-        }
-
-        function addToChatHistory(question, answer) {
-            const chatHistory = document.getElementById('chat-history');
-
-            const entry = document.createElement('div');
-            entry.className = 'chat-entry';
-
-            const timestamp = new Date().toLocaleString();
-
-            entry.innerHTML = `
-                <div class="question">Q: ${question}</div>
-                <div class="answer">${marked.parse(answer)}</div>
-                <div class="timestamp">${timestamp}</div>
-            `;
-
-            chatHistory.appendChild(entry);
-
-            // Auto-scroll to the new entry
-            setTimeout(() => {
-                entry.scrollIntoView({ behavior: "smooth", block: "start" });
-            }, 100);
         }
 
         // Event listeners
@@ -474,6 +889,14 @@
         document.getElementById('clear-history').addEventListener('click', () => {
             if (confirm('Are you sure you want to clear the chat history?')) {
                 document.getElementById('chat-history').innerHTML = '';
+                // Remove scroll indicator if present
+                const scrollIndicator = document.getElementById('scroll-indicator');
+                if (scrollIndicator) {
+                    scrollIndicator.remove();
+                }
+                // Reset scroll control
+                autoScrollEnabled = true;
+                isUserScrolling = false;
             }
         });
 
@@ -486,8 +909,16 @@
             chatVisible = !chatVisible;
         });
 
+        // Clean up EventSource on page unload
+        window.addEventListener('beforeunload', () => {
+            if (currentEventSource) {
+                currentEventSource.close();
+            }
+        });
+
         // Initialize on page load
         parseSelectedBooks();
+        setupScrollControl();
 
         // Focus on input field
         document.getElementById('question-input').focus();
