@@ -16,7 +16,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Clone your repository and get latest code
-RUN git clone https://github.com/Arqamansari23/demo.git /tmp/repo && \
+RUN git clonehttps://github.com/Arqamansari23/Chat-With-Multiple-Books-With-Ensemble-Retriever-BM25-Search-Symentic-Search-.git /tmp/repo && \
     cp -r /tmp/repo/* /app/ && \
     rm -rf /tmp/repo
 
