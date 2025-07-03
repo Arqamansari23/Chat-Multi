@@ -2,13 +2,29 @@ version: "3.8"
 
 services:
   chat-multi-book:
-    build: .
+    build: 
+      context: .
+      no_cache: true  # This ensures fresh build with latest code from repo
     ports:
       - "8000:8000"
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
     volumes:
+      # Persist vectorstore data (FAISS indexes)
       - vector_data:/app/vectorstores
+      # Persist uploaded PDF files
+      - temp_pdf_data:/app/temp_pdfs
+      # Create a bind mount for metadata file in a persistent directory
+      - metadata_data:/app/data
+    restart: unless-stopped
 
 volumes:
+  # Named volume for vectorstore data
   vector_data:
+    driver: local
+  # Named volume for temporary PDF files  
+  temp_pdf_data:
+    driver: local
+  # Named volume for metadata and other persistent files
+  metadata_data:
+    driver: local
