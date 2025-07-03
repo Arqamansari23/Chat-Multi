@@ -36,14 +36,17 @@ An advanced Retrieval-Augmented Generation (RAG) system built with **FastAPI**, 
 project-root/
 ├── main.py                  # FastAPI backend
 ├── Dockerfile               # For containerization
+├── docker-compose.yml       # Docker Compose config
 ├── requirements.txt         # Python dependencies
 ├── templates/
-│   └── index.html           # Frontend HTML
+│   ├── index.html           # Main frontend HTML
+│   └── chat.html            # Chat interface HTML
 ├── static/
 │   └── style.css            # Frontend CSS
 ├── vectorstores/            # Stores FAISS vector indexes (auto-generated)
 ├── temp_pdfs/               # Temporarily stores uploaded PDFs
 └── .gitignore               # Git ignore file
+
 ```
 
 ---
@@ -88,21 +91,55 @@ Then open [http://localhost:8000](http://localhost:8000) in your browser.
 
 ## 🐳 Docker Deployment
 
-### 1. Build Docker Image
+### 1️⃣ Build and Run Using Docker Compose (Recommended)
+
+Using **Docker Compose** ensures all volumes are created automatically and you get the latest code every time.
+
+#### Build Image and Pull Latest Code
+
+```bash
+docker compose build
+```
+
+*(Note: `no_cache: true` in `docker-compose.yml` forces a fresh build and pulls your repo’s latest code)*
+
+#### Start the Application
+
+```bash
+docker compose up
+```
+
+The app will be live at: [http://localhost:8000](http://localhost:8000)
+
+#### Stop the Application
+
+```bash
+docker compose down
+```
+
+This stops containers but **preserves volumes**, so your uploaded PDFs and vectorstores remain intact.
+
+---
+
+### 2️⃣ Alternative: Manual Docker Commands
+
+#### Build Docker Image
 
 ```bash
 docker build -t multi-book-chat .
 ```
 
-### 2. Run the Container
+#### Run the Container
 
 ```bash
 docker run -p 8000:8000 multi-book-chat
 ```
 
-App will be live at: `http://<your-server-ip>:8000`
+*(Note: This method does **not** automatically create named volumes unless you attach them manually)*
 
-### Optional: Set Container to Auto-Restart
+---
+
+### 3️⃣ Optional: Set Container to Auto-Restart
 
 ```bash
 docker update --restart always multi-book-chat
@@ -135,6 +172,8 @@ for chunk in chunks:
 
 This ensures that the LLM knows **where each chunk came from**, allowing it to provide source-specific, structured answers.
 
+---
+
 ### 📦 Per-Book Ensemble Retrieval
 
 For every uploaded book:
@@ -151,6 +190,8 @@ retriever = EnsembleRetriever(
 )
 retriever_map[book_title] = retriever
 ```
+
+---
 
 ### 🌐 Federated Querying
 
@@ -171,6 +212,25 @@ This **federated RAG** approach ensures the answer is synthesized from all relev
 
 ---
 
+## 🗃️ Why Maintain Docker Volumes?
+
+Using Docker Compose volumes allows you to:
+
+✅ **Persist vectorstore data** (`/app/vectorstores`)
+✅ **Keep uploaded PDF files** (`/app/temp_pdfs`)
+✅ **Retain metadata and chat history** (`/app/data`)
+
+Even if you rebuild or delete the container, your data remains.
+To **fully reset and remove all stored data**, use:
+
+```bash
+docker compose down -v
+```
+
+This deletes containers **and** volumes.
+
+---
+
 ## 📸 Screenshots
 
 | Interface                   | PDF's uploaded            | Q/A From Multiple Books     |
@@ -178,8 +238,6 @@ This **federated RAG** approach ensures the answer is synthesized from all relev
 | ![](screenshots/Interface_page.PNG) | ![](screenshots/uploaded_pages.PNG) | ![](screenshots/Chat_pages.PNG) |
 
 
-
----
 
 ## 📄 License
 
@@ -190,7 +248,9 @@ MIT License. Feel free to fork, improve, and use it in your own projects.
 ## 👨‍💼 Author
 
 **Arqam Ansari** — [LinkedIn](https://www.linkedin.com/in/arqam-ansari-26ba8a269?utm_source=share&utm_campaign=share_via&utm_content=profile&utm_medium=android_app)
+
 For collaboration or questions, feel free to open an issue or reach out!
 
+---
 
 
