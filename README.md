@@ -217,10 +217,14 @@ This **federated RAG** approach ensures the answer is synthesized from all relev
 Using Docker Compose volumes allows you to:
 
 ✅ **Persist vectorstore data** (`/app/vectorstores`)
+
 ✅ **Keep uploaded PDF files** (`/app/temp_pdfs`)
+
 ✅ **Retain metadata and chat history** (`/app/data`)
 
 Even if you rebuild or delete the container, your data remains.
+
+
 To **fully reset and remove all stored data**, use:
 
 ```bash
